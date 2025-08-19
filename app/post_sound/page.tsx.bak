@@ -1,0 +1,142 @@
+"use client";
+
+import { useState, useCallback } from "react";
+import { FiHeadphones } from "react-icons/fi"
+
+import ThumbnailSelector from "../../components/ThumbnailSelector";
+import TagInput from "../../components/TagInput";
+import PostSettingsForm from "../../components/PostSettingsForm";
+
+const PostPage = () => {
+  // サムネイル設定に必要な初期値及び関数
+  const [images, setImages] = useState<string[]>([]); // アップロードされた画像を格納
+  const [thumbnailIndex, setThumbnailIndex] = useState<number>(0); // サムネイル選択用インデックス
+  const [croppedImage, setCroppedImage] = useState<string | null>(null); // 切り抜き後の画像データURL
+  const [crop, setCrop] = useState({ x: 0, y: 0 }); // 切り抜き位置
+  const [zoom, setZoom] = useState(1); // ズーム値
+  const [tempCroppedData, setTempCroppedData] = useState<string | null>(null);
+  const onCropComplete = useCallback(async (_: any, croppedAreaPixels: any) => {
+    if (!images[thumbnailIndex]) return;
+
+    const cropped = await new Promise<string>((resolve) => {
+      const canvas = document.createElement("canvas");
+      const image = new window.Image();
+      image.src = images[thumbnailIndex];
+
+      image.onload = () => {
+        canvas.width = croppedAreaPixels.width;
+        canvas.height = croppedAreaPixels.height;
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(
+          image,
+          croppedAreaPixels.x,
+          croppedAreaPixels.y,
+          croppedAreaPixels.width,
+          croppedAreaPixels.height,
+          0,
+          0,
+          croppedAreaPixels.width,
+          croppedAreaPixels.height
+        );
+        resolve(canvas.toDataURL());
+      };
+    });
+
+    setTempCroppedData(cropped);
+  }, [images, thumbnailIndex]);
+
+  // 初期値（タイトル, メッセージ, タグの編集権限, 年齢制限, 公開範囲, コメント許可範囲, 予約投稿）
+  const [title, setTitle] = useState("");
+  const [caption, setCaption] = useState("");
+  const [tagEditPermission, setTagEditPermission] = useState("すべてのユーザー");
+  const [ageLimit, setAgeLimit] = useState("");
+  const [visibility, setVisibility] = useState("すべてのユーザー");
+  const [commentPermission, setCommentPermission] = useState("すべてのユーザー");
+  const [schedulePost, setSchedulePost] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+
+  // 投稿ボタンの無効化条件
+  const isPostDisabled = ageLimit === "";
+
+  return (
+    <div className="relative w-full max-w-10xl mx-auto p-8 flex flex-col items-center">
+      {/* アップロードに関するコードをここに入れる */}
+
+      <div className="w-full max-w-md space-y-6">
+        {/* タイトル */}
+        <div>
+          <label className="font-semibold block mb-2">タイトル</label>
+          <textarea
+            className="w-full border border-gray-300 p-2 rounded resize-y"
+            placeholder="タイトルを入力"
+            value={title}
+            maxLength={100}
+            rows={1}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <p className="text-sm text-right text-gray-500">{title.length.toLocaleString()}/100</p>
+
+          {/* サムネイル設定 */}
+          <ThumbnailSelector
+            title={title}
+            icon={<FiHeadphones className="text-4xl text-gray-600" />}
+            images={images}
+            setImages={setImages}
+            croppedImage={croppedImage}
+            setCroppedImage={setCroppedImage}
+            CropComponentProps={{
+              crop,
+              zoom,
+              setCrop,
+              setZoom,
+              onCropComplete,
+              tempCroppedData,
+              thumbnailIndex
+            }}
+          />
+
+          {/* メッセージ */}
+          <label className="font-semibold block mb-2">メッセージ</label>
+          <textarea
+            className="w-full border border-gray-300 p-2 rounded"
+            placeholder="メッセージを入力"
+            value={caption}
+            maxLength={1000}
+            rows={3}
+            onChange={(e) => setCaption(e.target.value)}
+          />
+          <p className="text-sm text-right text-gray-500">{caption.length.toLocaleString()}/1,000</p>
+        </div>
+
+        {/* タグ登録, タグ編集権限～予約投稿 */}
+        <TagInput presets={["楽曲", "素材", "ASMR", "ラジオ", "AI"]} />
+        <PostSettingsForm
+          tagEditPermission={tagEditPermission}
+          setTagEditPermission={setTagEditPermission}
+          ageLimit={ageLimit}
+          setAgeLimit={setAgeLimit}
+          visibility={visibility}
+          setVisibility={setVisibility}
+          commentPermission={commentPermission}
+          setCommentPermission={setCommentPermission}
+          schedulePost={schedulePost}
+          setSchedulePost={setSchedulePost}
+          scheduleDate={scheduleDate}
+          setScheduleDate={setScheduleDate}
+        />
+
+        {/* 投稿ボタン */}
+        <button
+          className={`bg-gradient-to-r from-blue-500 to-purple-500 text-white px-6 py-2 rounded transition w-full ${
+            isPostDisabled ? "opacity-50 cursor-not-allowed" : "hover:opacity-70 cursor-pointer"
+          }`}
+          disabled={isPostDisabled}
+        >
+          投稿する
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default PostPage;

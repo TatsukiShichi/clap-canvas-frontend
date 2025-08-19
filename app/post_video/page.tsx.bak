@@ -1,0 +1,488 @@
+"use client";
+
+import { useState, useCallback } from "react";
+import { useDropzone } from "react-dropzone";
+import Cropper from "react-easy-crop";
+import Image from "next/image";
+import getCroppedImg from "./utils/cropImage";
+import { ReactSortable } from "react-sortablejs";
+import { FiPlus } from "react-icons/fi";
+import HelpButton from "../../components/HelpButton";
+
+const PostPage = () => {
+  const [video, setVideo] = useState<string | null>(null);
+  const [thumbnails, setThumbnails] = useState<string[]>([]);
+  const [selectedThumbnail, setSelectedThumbnail] = useState<string | null>(null);
+  const [croppedImage, setCroppedImage] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+
+  const [title, setTitle] = useState("");
+  const [caption, setCaption] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingValue, setEditingValue] = useState("");
+  const [tagEditPermission, setTagEditPermission] = useState("すべてのユーザー");
+  const [ageLimit, setAgeLimit] = useState("");
+  const [visibility, setVisibility] = useState("すべてのユーザー");
+  const [commentPermission, setCommentPermission] = useState("すべてのユーザー");
+  const [schedulePost, setSchedulePost] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+
+  const extractThumbnails = async (videoFile: File) => {
+    const videoURL = URL.createObjectURL(videoFile);
+    const videoElement = document.createElement("video");
+    videoElement.src = videoURL;
+    videoElement.crossOrigin = "anonymous";
+    videoElement.muted = true;
+
+    await new Promise((res) => (videoElement.onloadedmetadata = () => res(true)));
+
+    const duration = videoElement.duration;
+    const times = [0.1, 0.5, 0.9].map((t) => t * duration);
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d")!;
+    canvas.width = videoElement.videoWidth;
+    canvas.height = videoElement.videoHeight;
+
+    const thumbs: string[] = [];
+    for (const time of times) {
+      await new Promise((res) => {
+        videoElement.currentTime = time;
+        videoElement.onseeked = () => {
+          context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+          thumbs.push(canvas.toDataURL("image/jpeg"));
+          res(true);
+        };
+      });
+    }
+
+    setThumbnails(thumbs);
+    setSelectedThumbnail(thumbs[0]);
+    URL.revokeObjectURL(videoURL);
+  };
+
+  const onVideoDrop = useCallback((acceptedFiles: File[]) => {
+    const file = acceptedFiles[0];
+    const reader = new FileReader();
+    reader.onload = () => setVideo(reader.result as string);
+    reader.readAsDataURL(file);
+    extractThumbnails(file);
+  }, []);
+
+  const onThumbnailDrop = useCallback((acceptedFiles: File[]) => {
+    const file = acceptedFiles[0];
+    const reader = new FileReader();
+    reader.onload = () => {
+      const imageData = reader.result as string;
+      setThumbnails((prev) => [...prev, imageData]);
+      setSelectedThumbnail(imageData);
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const { getRootProps: getVideoRootProps, getInputProps: getVideoInputProps } = useDropzone({
+    accept: { "video/*": [] },
+    onDrop: onVideoDrop,
+    maxFiles: 1,
+  });
+
+  const { getRootProps: getImageRootProps, getInputProps: getImageInputProps } = useDropzone({
+    accept: { "image/*": [] },
+    onDrop: onThumbnailDrop,
+    maxFiles: 1,
+  });
+
+  const onCropComplete = useCallback((_: any, croppedAreaPixels: any) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  }, []);
+
+  const handleCrop = useCallback(async () => {
+    if (!selectedThumbnail || !croppedAreaPixels) return;
+    const cropped = await getCroppedImg(selectedThumbnail, croppedAreaPixels);
+    setCroppedImage(cropped);
+  }, [selectedThumbnail, croppedAreaPixels]);
+
+  const handleTagInput = () => {
+    let input = tagInput.trim();
+    if (input === "" || input === "#") return;
+
+    const rawTags = input.includes("#") ? input.split("#").map(t => t.trim()).filter(t => t) : [input];
+    const processedTags = rawTags.map(tag => (tag.startsWith("#") ? tag : `#${tag}`));
+    const uniqueProcessedTags = Array.from(new Set(processedTags));
+    const validTags = uniqueProcessedTags.filter(tag =>
+      tag.length <= 50 && !tags.includes(tag)
+    );
+
+    if (tags.length + validTags.length > 50) {
+      alert("タグは最大50個までです。");
+      return;
+    }
+
+    setTags([...tags, ...validTags]);
+    setTagInput("");
+  };
+
+  const removeTag = (index: number) => {
+    setTags(tags.filter((_, i) => i !== index));
+    if (editingIndex !== null && editingIndex > index) {
+      setEditingIndex(editingIndex - 1);
+    } else if (editingIndex === index) {
+      setEditingIndex(null);
+    }
+  };
+
+  return (
+    <div className="relative w-full max-w-10xl mx-auto p-8 flex flex-col items-center">
+      <HelpButton
+        href="/helpcenter/upload_video"
+        className="absolute top-0 right-8"
+      />
+      {/* 動画アップロード */}
+      {!video ? (
+        <div {...getVideoRootProps()} className="w-full h-[200px] bg-gray-200 mb-12 rounded flex justify-center items-center cursor-pointer">
+          <input {...getVideoInputProps()} />
+          <button className="bg-gradient-to-r from-blue-500 to-purple-500 text-white px-4 py-2 rounded-full flex items-center gap-2 shadow-md hover:opacity-70">
+            <FiPlus className="text-xl" /> 動画をアップロード
+          </button>
+        </div>
+      ) : (
+        <div className="w-full max-w-2xl mx-auto mb-8">
+          <video src={video} controls className="w-full max-h-[400px] rounded-md" />
+        </div>
+      )}
+
+      {/* サムネイル選択・クロップ */}
+      {thumbnails.length > 0 && (
+        <>
+          <div className="flex gap-4 mb-4">
+            {thumbnails.map((thumb, i) => (
+              <img
+                key={i}
+                src={thumb}
+                onClick={() => setSelectedThumbnail(thumb)}
+                className={`w-32 h-20 object-cover rounded border cursor-pointer ${selectedThumbnail === thumb ? "ring-2 ring-blue-500" : ""}`}
+                alt={`thumb-${i}`}
+              />
+            ))}
+            <div {...getImageRootProps()} className="w-32 h-20 bg-gray-200 rounded flex justify-center items-center border cursor-pointer">
+              <input {...getImageInputProps()} />
+              <FiPlus className="text-2xl text-gray-600" />
+            </div>
+          </div>
+
+          <div className="relative w-full h-[300px] bg-gray-100 mb-4">
+            {selectedThumbnail && (
+              <Cropper
+                image={selectedThumbnail}
+                crop={crop}
+                zoom={zoom}
+                aspect={1}
+                onCropChange={setCrop}
+                onZoomChange={setZoom}
+                onCropComplete={onCropComplete}
+              />
+            )}
+          </div>
+
+          <div className="w-full max-w-md mb-4">
+            <label className="block mb-2 font-semibold">ズーム</label>
+            <input
+              type="range"
+              min={1}
+              max={3}
+              step={0.1}
+              value={zoom}
+              onChange={(e) => setZoom(Number(e.target.value))}
+              className="w-full"
+            />
+          </div>
+
+          <button
+            onClick={handleCrop}
+            className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition mb-8"
+          >
+            サムネイルを確定
+          </button>
+
+          {croppedImage && (
+            <div className="mb-8 text-center">
+              <h2 className="font-semibold mb-2">サムネイルプレビュー</h2>
+              <Image src={croppedImage} alt="Cropped" width={300} height={300} className="rounded mx-auto" />
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="w-full max-w-md space-y-6">
+        <div>
+          <label className="font-semibold block mb-2">タイトル</label>
+          <textarea
+            className="w-full border border-gray-300 p-2 rounded resize-y"
+            placeholder="タイトルを入力"
+            value={title}
+            maxLength={100}
+            rows={2}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <p className="text-sm text-right text-gray-500">{title.length.toLocaleString()}/100</p>
+        </div>
+
+        <div>
+          <label className="font-semibold block mb-2">メッセージ</label>
+          <textarea
+            className="w-full border border-gray-300 p-2 rounded"
+            placeholder="メッセージを入力"
+            value={caption}
+            maxLength={1000}
+            onChange={(e) => setCaption(e.target.value)}
+          />
+          <p className="text-sm text-right text-gray-500">{caption.length.toLocaleString()}/1,000</p>
+        </div>
+
+        <div>
+          <label className="font-semibold block mb-2">
+            タグ
+            <HelpButton href="/helpcenter/tags" />
+          </label>
+
+          <div className="flex flex-wrap gap-2 mb-2">
+            {["メイキング", "AI"].map((preset) => {
+              const alreadyAdded = tags.includes(preset);
+
+              return (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => {
+                    if (tags.length >= 50) {
+                      alert("タグは最大50個までです。");
+                      return;
+                    }
+                    const formattedTag = preset.startsWith("#") ? preset : `#${preset}`;
+                    if (!tags.includes(formattedTag)) {
+                      setTags([...tags, formattedTag]);
+                    }
+                  }}
+                  disabled={tags.includes(preset) || tags.includes(`#${preset}`)}
+                  className={`px-3 py-1 rounded-full text-sm transition ${
+                    tags.includes(preset) || tags.includes(`#${preset}`)
+                      ? "bg-gray-400 text-gray-600 cursor-not-allowed"
+                      : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                  }`}
+                >
+                  {preset}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              type="text"
+              className="flex-1 border border-gray-300 p-2 rounded"
+              placeholder="タグを入力 (最大50文字・最大50個)"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleTagInput();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition"
+              onClick={handleTagInput}
+            >
+              追加
+            </button>
+          </div>
+
+          <ReactSortable
+            list={tags.map((tag, index) => ({ id: index, name: tag }))}
+            setList={(newList) => setTags(newList.map((item) => item.name))}
+            className="flex flex-wrap gap-2 mt-2"
+          >
+            {tags.map((tag, index) => (
+              <div
+                key={index}
+                className="relative flex items-center bg-gray-200 rounded px-2 py-1 cursor-move group"
+              >
+                {editingIndex === index ? (
+                  <input
+                    className="px-2 py-1 bg-white border rounded w-32"
+                    value={editingValue}
+                    autoFocus
+                    onChange={(e) => setEditingValue(e.target.value)}
+                    onBlur={() => {
+                      const trimmed = editingValue.trim();
+                      if (trimmed.length > 50) {
+                        alert("タグは50文字以内で入力してください。");
+                        return;
+                      }
+                      if (trimmed === "") {
+                        setTags(tags.filter((_, i) => i !== index));
+                      } else {
+                        setTags(tags.map((t, i) => (i === index ? trimmed : t)));
+                      }
+                      setEditingIndex(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
+                  />
+                ) : (
+                  <span
+                    className="pr-4"
+                    onClick={() => {
+                      setEditingIndex(index);
+                      setEditingValue(tag);
+                    }}
+                  >
+                    {tag}
+                  </span>
+                )}
+
+                <button
+                  type="button"
+                  className="absolute top-[-6px] right-[-6px] bg-white rounded-full w-5 h-5 flex items-center justify-center text-gray-500 text-xs shadow-sm hover:bg-red-500 hover:text-white transition"
+                  onClick={() => {
+                    setTags(tags.filter((_, i) => i !== index));
+                    if (editingIndex !== null && editingIndex > index) {
+                      setEditingIndex(editingIndex - 1);
+                    } else if (editingIndex === index) {
+                      setEditingIndex(null);
+                    }
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </ReactSortable>
+
+          {/* タグ数表示 */}
+          <p className="text-sm text-gray-500 mt-1">{tags.length} / 50個</p>
+
+          {/* 全削除ボタン（タグが存在する場合のみ表示） */}
+          {tags.length > 0 && (
+            <button
+              type="button"
+              className="mt-2 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition"
+              onClick={() => {
+                const confirmed = window.confirm("すべてのタグを削除しますか？");
+                if (confirmed) {
+                  setTags([]);
+                }
+              }}
+            >
+              全削除
+            </button>
+          )}
+
+        </div>
+
+        <div>
+          <label className="font-semibold block mb-2">タグの編集権限</label>
+          <select
+            className="w-full border border-gray-300 p-2 rounded cursor-pointer"
+            value={tagEditPermission}
+            onChange={(e) => setTagEditPermission(e.target.value)}
+          >
+            {["すべてのユーザー", "投稿者＋フォロワー", "投稿者のみ"].map((option) => (
+              <option key={option}>{option}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="mb-4">
+         <label className="font-semibold block mb-2 text-red-600">
+           年齢制限 <span className="text-xs text-red-500 ml-1">(必須)</span>
+           <HelpButton href="/helpcenter/age-limit" />
+         </label>
+         {["全年齢", "R-18"].map((option) => {
+           const isSelected = ageLimit === option;
+
+           return (
+             <label
+               key={option}
+               className={`flex items-center gap-2 my-1 cursor-pointer transition ${
+                 !isSelected ? "hover:opacity-50" : ""
+               }`}
+             >
+               <input
+                 type="radio"
+                 name="ageLimit"
+                 value={option}
+                 checked={ageLimit === option}
+                 onChange={() => setAgeLimit(option)}
+                 className="cursor-pointer"
+               />
+               {option}
+             </label>
+           );
+         })}
+        </div>
+
+        <div>
+          <label className="font-semibold block mb-2">公開範囲</label>
+          <select
+            className="w-full border border-gray-300 p-2 rounded cursor-pointer"
+            value={visibility}
+            onChange={(e) => setVisibility(e.target.value)}
+          >
+            {["すべてのユーザー", "投稿者＋フォロワー", "非公開"].map((option) => (
+              <option key={option}>{option}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="font-semibold block mb-2">コメント許可範囲</label>
+          <select
+            className="w-full border border-gray-300 p-2 rounded cursor-pointer"
+            value={commentPermission}
+            onChange={(e) => setCommentPermission(e.target.value)}
+          >
+            {["すべてのユーザー", "投稿者＋フォロワー", "不可"].map((option) => (
+              <option key={option}>{option}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="flex items-center gap-2 font-semibold">
+            <input
+              type="checkbox"
+              checked={schedulePost}
+              onChange={() => setSchedulePost(!schedulePost)}
+            />
+            予約投稿
+          </label>
+          {schedulePost && (
+            <input
+              type="datetime-local"
+              className="w-full border border-gray-300 p-2 rounded mt-2"
+              value={scheduleDate}
+              onChange={(e) => setScheduleDate(e.target.value)}
+            />
+          )}
+        </div>
+
+        <button className="bg-gradient-to-r from-blue-500 to-purple-500 text-white px-6 py-2 rounded hover:bg-blue-700 transition w-full hover:opacity-70">
+          投稿する
+        </button>
+      </div>
+
+    </div>
+  );
+};
+
+export default PostPage;
